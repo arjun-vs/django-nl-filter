@@ -2,10 +2,12 @@ import ollama
 import ast
 from typing import List, Union, Type, Optional
 from django.db import models
+from django.contrib.contenttypes.fields import GenericForeignKey
 
 def get_models_schema(models_list: List[Type[models.Model]]) -> str:
     """
     Generate a recursive schema for Django models, including fields and relations.
+    Handles GenericForeignKey fields appropriately.
     """
     schema_parts = []
     visited_models = set()
@@ -16,7 +18,9 @@ def get_models_schema(models_list: List[Type[models.Model]]) -> str:
         visited_models.add(model)
         schema_parts.append(f"Model: {model.__name__}")
         for field in model._meta.get_fields(include_hidden=True):
-            if hasattr(field, 'related_model') and field.related_model:
+            if isinstance(field, GenericForeignKey):
+                schema_parts.append(f"  - {field.name}: GenericForeignKey (references any model via ContentType, use {field.name}__field_name for filtering)")
+            elif hasattr(field, 'related_model') and field.related_model:
                 schema_parts.append(f"  - {field.name}: ForeignKey to {field.related_model.__name__} (access via {field.name}__field_name)")
                 add_model_schema(field.related_model)
             else:
@@ -96,6 +100,7 @@ Convert the natural language to a valid Django ORM query string.
 - Other: dates/date_trunc, Func, raw SQL (last resort)
 - Mutations: Use .update/.delete if implied
 - Imports: Prefix with 'from django.db.models import ...' for Q/F/Subquery/Avg/etc.
+- For GenericForeignKey: Use content_type and object_id fields for filtering (e.g., filter(content_type__model='modelname', object_id__in=[...]))
 - Output ONLY the Python code string, executable as-is."""
 
     response = ollama.chat(
